@@ -48,6 +48,66 @@ sleep 30
 echo "📊 Checking service status..."
 docker-compose ps
 
+echo "⏳ Waiting for Elasticsearch API to become ready..."
+# Wait for Elasticsearch HTTP to be ready (up to ~2 minutes)
+ATTEMPTS=60
+SLEEP_SECS=2
+for i in $(seq 1 $ATTEMPTS); do
+  if curl -s http://localhost:9200 >/dev/null; then
+    echo "✅ Elasticsearch is responding."
+    break
+  fi
+  if [ "$i" -eq "$ATTEMPTS" ]; then
+    echo "❌ Elasticsearch did not become ready in time."
+    exit 1
+  fi
+  sleep $SLEEP_SECS
+done
+
+echo "🧹 Configuring ILM: delete logstash-* indices after 7 days..."
+# Create or update ILM policy
+curl -sS -X PUT "http://localhost:9200/_ilm/policy/logstash-delete-7d" \
+  -H 'Content-Type: application/json' \
+  -d @- <<'JSON'
+{
+  "policy": {
+    "phases": {
+      "delete": {
+        "min_age": "7d",
+        "actions": { "delete": {} }
+      }
+    }
+  }
+}
+JSON
+
+# Create or update index template to attach ILM policy to future indices
+curl -sS -X PUT "http://localhost:9200/_index_template/logstash-template" \
+  -H 'Content-Type: application/json' \
+  -d @- <<'JSON'
+{
+  "index_patterns": ["logstash-*"],
+  "template": {
+    "settings": {
+      "index.lifecycle.name": "logstash-delete-7d"
+    }
+  }
+}
+JSON
+
+# Attach ILM policy to any existing logstash-* indices
+curl -sS -X PUT "http://localhost:9200/logstash-*/_settings" \
+  -H 'Content-Type: application/json' \
+  -d @- <<'JSON'
+{
+  "index": {
+    "lifecycle": { "name": "logstash-delete-7d" }
+  }
+}
+JSON
+
+echo "✅ ILM configured: logstash-* will be deleted after 7 days."
+
 echo "✅ Monitoring stack deployed successfully!"
 echo ""
 echo "🌐 Access URLs:"
@@ -56,6 +116,21 @@ echo "   Kibana Logs: http://your-server-ip:5601"
 echo "   Prometheus: http://your-server-ip:9090"
 echo "   cAdvisor: http://your-server-ip:8080"
 echo ""
+cat <<'EOT'
+🔎 To view top containers by log volume (doc counts), run either command:
+
+curl -s 'http://localhost:9200/logstash-*/_search' -H 'Content-Type: application/json' -d '{
+  "size": 0,
+  "aggs": { "by_container": { "terms": { "field": "container.name.keyword", "size": 20 } } }
+}'
+
+# Or using the field added by Logstash's mutate (if mapped as keyword):
+curl -s 'http://localhost:9200/logstash-*/_search' -H 'Content-Type: application/json' -d '{
+  "size": 0,
+  "aggs": { "by_container": { "terms": { "field": "container_name.keyword", "size": 20 } } }
+}'
+EOT
+
 echo "🔒 For private access, configure your domain names in nginx/nginx.conf"
 echo "   and set up SSL certificates in nginx/ssl/"
 echo ""
