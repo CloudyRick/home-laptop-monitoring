@@ -192,6 +192,7 @@ volumes:
   prometheus_data:
   grafana_data:
   elasticsearch_data:
+  filebeat_data:
 
 networks:
   monitoring:
