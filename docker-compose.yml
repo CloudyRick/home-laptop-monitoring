@@ -159,6 +159,7 @@ services:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /var/log:/var/log:ro
+      - filebeat_data:/usr/share/filebeat/data 
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
       - KIBANA_HOST=http://kibana:5601

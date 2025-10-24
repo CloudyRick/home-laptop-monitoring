@@ -8,12 +8,46 @@ filebeat.inputs:
     enabled: true
     paths:
       - '/var/lib/docker/containers/*/*.log'
+    stream: stdout
     processors:
       - add_docker_metadata:
           host: "unix:///var/run/docker.sock"
       - add_fields:
           fields:
             log_type: docker
+      - drop_event:
+          when:
+            or:
+              - contains:
+                  container.name: "elasticsearch"
+              - contains:
+                  container.name: "kibana"
+              - contains:
+                  container.name: "logstash"
+              - contains:
+                  container.name: "filebeat"
+              - contains:
+                  container.name: "prometheus"
+              - contains:
+                  container.name: "grafana"
+              - contains:
+                  container.name: "cadvisor"
+              - contains:
+                  container.name: "node-exporter"
+              - contains:
+                  container.name: "postgres-exporter"
+      - drop_fields:
+          fields:
+            - container.labels
+            - log.offset
+            - agent.ephemeral_id
+            - agent.id
+            - ecs
+            - input
+            - host.architecture
+    exclude_lines:
+      - '^GET /health'
+      - '^HEAD /'        # drop trivial health checks if applicable
 
   # System logs
   - type: log
